@@ -1,0 +1,6 @@
+.env
+__pycache__/
+coverletter.py
+job_description.txt
+test_.py
+venv
