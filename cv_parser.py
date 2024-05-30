@@ -9,6 +9,9 @@ from openai import OpenAI
 
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
+from nltk.tokenize import sent_tokenize
+from transformers import pipeline
+from transformers import AutoTokenizer, AutoModelForTokenClassification
 
 load_dotenv()
 
@@ -22,6 +25,11 @@ nltk.download('punkt')
 stop_words = set(nltk.corpus.stopwords.words('english'))
 filepath = 'job_description.txt'
 
+#Prepare the bert based NER model tonextract the skills from job description
+model_name="dslim/bert-base-NER"
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+model = AutoModelForTokenClassification.from_pretrained(model_name)
+nlp = pipeline("ner", model=model, tokenizer=tokenizer, aggregation_strategy="simple")
 
 def extract_text_from_pdf(pdf_path):
     text=''
@@ -51,7 +59,7 @@ def get_contact_info(text):
     phone = re.search(r'\b\d(?:\s?\d){9}\b', text)
     return email.group(0) if email else None, phone.group(0) if phone else None
 
-def get_skills(text, requirements, stop_words):
+def get_skills(text, required_skills, stop_words):
     found_skills = set()
     #tokenize the text and remove stop words
     words = word_tokenize(text)
@@ -61,24 +69,34 @@ def get_skills(text, requirements, stop_words):
     #generate bigrams and trigrams (such as artificial intelligence)
     bigrams_trigrams = list(map(' '.join, nltk.everygrams(filtered_words, 2, 3)))
     for word in filtered_words:
-        if word in requirements:
+        if word in required_skills:
             found_skills.add(word)
 
     for ngram in bigrams_trigrams:
-        if ngram in requirements:
+        if ngram in required_skills:
             found_skills.add(ngram)
     return found_skills
 
-def get_requirements():
-    input_string = input('Please enter the skills needed for the job split by commas: ')
-    requirements = [word.strip() for word in input_string.split(',')]
-    return requirements
 
 def get_job_description(filepath):
     with open(filepath, 'r') as file:
         content=file.read()
         return content
 
+'''using the bert based model to do the NER task, 
+parsing the necessaire skills according to the job description'''
+
+def get_required_skills(text): 
+  sentences = sent_tokenize(text)
+  results=[]
+  required_skills=[]
+  for sentence in sentences:
+    results.extend(nlp(sentence))
+  
+  for result in results:
+    if not result['word'].startswith('##'):
+      required_skills.append(result['word'])
+  return required_skills
 
 # Function to generate a cover letter using GPT-3.5-turbo
 def generate_cover_letter(name, title, email, phone, skills):
@@ -86,7 +104,7 @@ def generate_cover_letter(name, title, email, phone, skills):
     skills_str = ', '.join(skills)
     prompt = f"""
     Generate a professional cover letter for the following candidate:
-    Name: {name}\nTitle: {title}\nEmail: {email}\nPhone: {phone}\nSkills: {skills_str}
+    Name: {name}\nTitle: {title[0]}\nEmail: {email}\nPhone: {phone}\nSkills: {skills_str}
     """
     
     max_retries = 5
@@ -115,15 +133,14 @@ def generate_cover_letter(name, title, email, phone, skills):
     return "Unable to generate cover letter due to rate limits."
 
 
-raw_text = extract_text_from_pdf('/Users/xulitong/Desktop/YongXie.pdf')
-text = preprocess_text(raw_text)
-email, phone = get_contact_info(text)
-name, title = get_name_title(text)
+resume_raw = extract_text_from_pdf('/Users/xulitong/Desktop/YongXie.pdf')
+resume = preprocess_text(resume_raw)
+email, phone = get_contact_info(resume)
+name, title = get_name_title(resume)
 #print(f'name: {name}\ntitle: {title}\nphone: {phone}\nemail: {email}')
-
-requirements = get_requirements()
-found_skills = get_skills(text=text, requirements=requirements, stop_words=stop_words)
-#job_description = get_job_description(filepath)
+job_descrip = get_job_description(filepath)
+required_skills = get_required_skills (job_descrip)
+found_skills = get_skills(text=resume, required_skills=required_skills, stop_words=stop_words)
 
 #print(f'required skills: {requirements}\nfound_skills: {found_skills}')
 
